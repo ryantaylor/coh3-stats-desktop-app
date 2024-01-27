@@ -32,6 +32,9 @@ import {
 import { playSound as playSoundFunc } from "./game-found-sound/playSound"
 import events from "./mixpanel/mixpanel"
 import { useGameData } from "./game-data-provider/GameDataProvider"
+import {invoke, shell} from "@tauri-apps/api";
+import {authURL} from "./cohdb/oauth";
+import {useCohdbToken} from "./cohdb/configValues";
 
 export const Settings: React.FC = () => {
   const gameData = useGameData()
@@ -40,6 +43,7 @@ export const Settings: React.FC = () => {
   const [playSoundVolume, setPlaySoundVolume] = usePlaySoundVolume()
   const [showFlagsOverlay, setShowFlagsOverlay] = useShowFlagsOverlay()
   const [alwaysShowOverlay, setAlwaysShowOverlay] = useAlwaysShowOverlay()
+  const [cohdbToken, setCohdbToken] = useCohdbToken();
   const [appDataPath, setAppDataPath] = useState<string>("")
 
   useEffect(() => {
@@ -73,6 +77,11 @@ export const Settings: React.FC = () => {
       events.settings_changed("logFilePath", selected as string)
       setLogFilePath(selected as string)
     }
+  }
+
+  const cohdbConnect = async () => {
+    await invoke('start_server');
+    shell.open(await authURL());
   }
 
   return (
@@ -226,6 +235,9 @@ export const Settings: React.FC = () => {
               </Tooltip>
             </Group>
           </div>
+          <Divider />
+          <Text weight={700}>cohdb:</Text>
+          {cohdbToken?.accessToken ? <div>Connected!</div> : <Button onClick={cohdbConnect}>Connect!</Button>}
         </Stack>
       </Box>
     </>

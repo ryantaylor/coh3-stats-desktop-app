@@ -7,9 +7,10 @@ extern crate machine_uid;
 use tauri_plugin_single_instance;
 use tauri_plugin_fs_watch;
 use std::path::Path;
-use tauri::Manager;
+use tauri::{command, Manager, Window};
 use window_shadows::set_shadow;
 use tauri_plugin_log::{LogTarget};
+use tauri_plugin_oauth::{start_with_config, OauthConfig};
 mod parse_log_file;
 
 #[derive(Clone, serde::Serialize)]
@@ -18,9 +19,22 @@ struct Payload {
   cwd: String,
 }
 
+#[command]
+async fn start_server(window: Window) -> Result<u16, String> {
+    let mut config = OauthConfig::default();
+    config.ports = Some(vec![6969]);
+    start_with_config(config, move |url| {
+        // Because of the unprotected localhost port, you must verify the URL here.
+        // Preferably send back only the token, or nothing at all if you can handle everything else in Rust.
+        println!("{}", url);
+        let _ = window.emit("oauth://url", url);
+    })
+        .map_err(|err| err.to_string())
+}
+
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![get_default_log_file_path, check_log_file_exists, get_machine_id, parse_log_file::parse_log_file_reverse])
+        .invoke_handler(tauri::generate_handler![get_default_log_file_path, check_log_file_exists, get_machine_id, parse_log_file::parse_log_file_reverse, start_server])
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             let window = app.get_window("main").unwrap();
             window.set_focus().ok();
@@ -35,7 +49,6 @@ fn main() {
             LogTarget::Stdout,
         ]).build())
         .plugin(tauri_plugin_fs_watch::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| { // Add window shadows
             let window = app.get_window("main").unwrap();

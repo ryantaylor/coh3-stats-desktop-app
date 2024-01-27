@@ -15,7 +15,7 @@
             "http": {
                 "all": true,
                 "request": true,
-                "scope": ["https://coh3-api.reliclink.com/*"]
+                "scope": ["https://coh3-api.reliclink.com/*", "http://localhost:3000/*"]
             },
             "fs": {
                 "all": true,

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react"
 import { Store } from "tauri-plugin-store-api"
 import { getStore } from "./store"
 
-const CONFIG_CHANGE_EVENT = new EventEmitter()
+export const CONFIG_CHANGE_EVENT = new EventEmitter()
 
 export const configValueFactory = <T,>(
   key: string,
