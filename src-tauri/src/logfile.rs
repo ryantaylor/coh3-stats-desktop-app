@@ -1,8 +1,8 @@
 use nom::branch::alt;
 use nom::bytes::complete::{is_not, tag, take_until};
-use nom::character::complete::{line_ending, space1};
-use nom::combinator::{map, map_parser};
-use nom::multi::fold_many0;
+use nom::character::complete::{digit1, line_ending, space1};
+use nom::combinator::{map, map_parser, opt};
+use nom::multi::{fold_many0, fold_many1, many1};
 use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::IResult;
 
@@ -14,8 +14,7 @@ pub struct LogfileState {
     pub duration: Option<u64>,
     pub map: Option<String>,
     pub win_condition: Option<String>,
-    pub left: Option<TeamData>,
-    pub right: Option<TeamData>,
+    pub teams: Option<TeamData>,
     pub player_name: Option<String>,
     pub player_steam_id: Option<String>,
     pub language_code: Option<String>,
@@ -41,11 +40,8 @@ impl LogfileState {
         if other.win_condition.is_some() {
             self.win_condition = other.win_condition;
         }
-        if other.left.is_some() {
-            self.left = other.left;
-        }
-        if other.right.is_some() {
-            self.right = other.right;
+        if other.teams.is_some() {
+            self.teams = other.teams;
         }
         if other.player_name.is_some() {
             self.player_name = other.player_name;
@@ -86,34 +82,26 @@ pub enum GameType {
 }
 
 #[derive(Debug)]
-pub enum TeamSide {
-    Axis,
-    Allies,
-    Mixed,
-}
-
-#[derive(Debug)]
 pub struct PlayerData {
     ai: bool,
     faction: String,
-    relic_id: String,
+    relic_id: u64,
     name: String,
     position: u8,
-    steam_id: String,
-    rank: i64,
+    team: u8,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct TeamData {
-    players: Vec<PlayerData>,
-    side: TeamSide,
+    left: Vec<PlayerData>,
+    right: Vec<PlayerData>,
 }
 
 pub type ParserResult<'a, T> = IResult<&'a str, T>;
 
 pub fn parse_logfile(input: &str) -> ParserResult<LogfileState> {
     fold_many0(
-        alt((parse_state_transition, parse_line, parse_blank)),
+        alt((parse_state_transition, parse_players, parse_line)),
         LogfileState::default,
         |mut acc: LogfileState, item| {
             if let Some(state) = item {
@@ -125,7 +113,7 @@ pub fn parse_logfile(input: &str) -> ParserResult<LogfileState> {
 }
 
 fn parse_line(input: &str) -> ParserResult<Option<LogfileState>> {
-    map(terminated(is_not("\r\n"), line_ending), |_| None)(input)
+    map(terminated(opt(is_not("\r\n")), line_ending), |_| None)(input)
 }
 
 fn parse_blank(input: &str) -> ParserResult<Option<LogfileState>> {
@@ -157,6 +145,87 @@ fn parse_set_state(input: &str) -> ParserResult<(&str, &str)> {
             )),
         ),
         |(new, old)| (new, old),
+    )(input)
+}
+
+fn parse_players(input: &str) -> ParserResult<Option<LogfileState>> {
+    map(
+        fold_many1(parse_player, TeamData::default, |mut acc, item| {
+            match item.team {
+                0 => acc.left.push(item),
+                1 => acc.right.push(item),
+                _ => panic!("invalid team {}", item.team),
+            }
+            acc
+        }),
+        |teams| {
+            Some(LogfileState {
+                teams: Some(teams),
+                ..Default::default()
+            })
+        },
+    )(input)
+}
+
+fn parse_player(input: &str) -> ParserResult<PlayerData> {
+    map_parser(
+        terminated(is_not("\r\n"), line_ending),
+        preceded(
+            tuple((parse_indicator, parse_timestamp, parse_id)),
+            parse_game_player,
+        ),
+    )(input)
+}
+
+fn parse_game_player(input: &str) -> ParserResult<PlayerData> {
+    map(
+        preceded(
+            tag("GAME -- "),
+            tuple((parse_ai, parse_position, parse_player_details)),
+        ),
+        |(ai, position, (name, relic_id, team, faction))| PlayerData {
+            ai,
+            position,
+            team,
+            name,
+            relic_id,
+            faction,
+        },
+    )(input)
+}
+
+fn parse_ai(input: &str) -> ParserResult<bool> {
+    terminated(
+        alt((
+            map(tag("Human Player"), |_| false),
+            map(tag("AI Player"), |_| true),
+        )),
+        tag(": "),
+    )(input)
+}
+
+fn parse_position(input: &str) -> ParserResult<u8> {
+    map(terminated(digit1, space1), |position: &str| {
+        position.parse::<u8>().unwrap()
+    })(input)
+}
+
+fn parse_player_details(input: &str) -> ParserResult<(String, u64, u8, String)> {
+    map(
+        many1(terminated(is_not(" "), opt(tag(" ")))),
+        |tokens: Vec<&str>| {
+            let len = tokens.len();
+            (
+                tokens[0..(len - 3)]
+                    .iter()
+                    .map(|token| token.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                tokens[len - 3].parse::<u64>().unwrap(),
+                tokens[len - 2].parse::<u8>().unwrap(),
+                tokens[len - 1].to_string(),
+            )
+        },
     )(input)
 }
 
