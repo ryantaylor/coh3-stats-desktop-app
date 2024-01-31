@@ -1,5 +1,5 @@
 use nom::branch::alt;
-use nom::bytes::complete::{is_not, tag, take_until, take_while1};
+use nom::bytes::complete::{is_not, tag, take_until};
 use nom::character::complete::{alpha1, digit1, line_ending, space1};
 use nom::combinator::{map, map_parser, map_res, opt, peek};
 use nom::multi::{fold_many0, fold_many1, many1};
@@ -66,7 +66,12 @@ pub type ParserResult<'a, T> = IResult<&'a str, T>;
 
 pub fn parse_logfile(input: &str) -> ParserResult<LogfileState> {
     fold_many0(
-        alt((parse_state_transition, parse_player_relic_id, parse_players, parse_line)),
+        alt((
+            parse_state_transition,
+            parse_player_relic_id,
+            parse_players,
+            parse_line,
+        )),
         LogfileState::default,
         |mut acc: LogfileState, item| {
             if let Some(state) = item {
@@ -171,10 +176,12 @@ fn parse_position(input: &str) -> ParserResult<u8> {
 
 fn parse_player_details(input: &str) -> ParserResult<(String, Option<u64>, u8, String)> {
     map(
-        many1(terminated(alt((map(peek(tag(" ")), |_| ""), is_not(" "))), opt(tag(" ")))),
+        many1(terminated(
+            alt((map(peek(tag(" ")), |_| ""), is_not(" "))),
+            opt(tag(" ")),
+        )),
         |tokens: Vec<&str>| {
             let len = tokens.len();
-            println!("{:?}", tokens);
             (
                 tokens[0..(len - 3)]
                     .iter()
@@ -245,9 +252,9 @@ fn take_line(input: &str) -> ParserResult<&str> {
 
 #[cfg(test)]
 mod tests {
+    use super::parse_logfile;
     use std::fs::File;
     use std::io::Read;
-    use super::parse_logfile;
 
     #[test]
     fn test_normal_logfile() {
