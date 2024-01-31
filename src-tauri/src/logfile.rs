@@ -1,7 +1,7 @@
 use nom::branch::alt;
-use nom::bytes::complete::{is_not, tag, take_until};
+use nom::bytes::complete::{is_not, tag, take_until, take_while1};
 use nom::character::complete::{alpha1, digit1, line_ending, space1};
-use nom::combinator::{map, map_parser, map_res, opt};
+use nom::combinator::{map, map_parser, map_res, opt, peek};
 use nom::multi::{fold_many0, fold_many1, many1};
 use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::IResult;
@@ -50,7 +50,7 @@ impl GameState {
 pub struct PlayerData {
     ai: bool,
     faction: String,
-    relic_id: u64,
+    relic_id: Option<u64>,
     name: String,
     position: u8,
     team: u8,
@@ -169,18 +169,19 @@ fn parse_position(input: &str) -> ParserResult<u8> {
     map_res(terminated(digit1, space1), str::parse::<u8>)(input)
 }
 
-fn parse_player_details(input: &str) -> ParserResult<(String, u64, u8, String)> {
+fn parse_player_details(input: &str) -> ParserResult<(String, Option<u64>, u8, String)> {
     map(
-        many1(terminated(is_not(" "), opt(tag(" ")))),
+        many1(terminated(alt((map(peek(tag(" ")), |_| ""), is_not(" "))), opt(tag(" ")))),
         |tokens: Vec<&str>| {
             let len = tokens.len();
+            println!("{:?}", tokens);
             (
                 tokens[0..(len - 3)]
                     .iter()
                     .map(|token| token.to_string())
                     .collect::<Vec<_>>()
                     .join(" "),
-                tokens[len - 3].parse::<u64>().unwrap(),
+                tokens[len - 3].parse::<u64>().ok(),
                 tokens[len - 2].parse::<u8>().unwrap(),
                 tokens[len - 1].to_string(),
             )
@@ -240,4 +241,66 @@ fn parse_id(input: &str) -> ParserResult<usize> {
 
 fn take_line(input: &str) -> ParserResult<&str> {
     terminated(is_not("\r\n"), line_ending)(input)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::File;
+    use std::io::Read;
+    use super::parse_logfile;
+
+    #[test]
+    fn test_normal_logfile() {
+        let mut file = File::open("test/fixtures/warnings.log.test").unwrap();
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).unwrap();
+        let str = String::from_utf8_lossy(&buf);
+
+        let results = parse_logfile(&str);
+        assert!(results.is_ok())
+    }
+
+    #[test]
+    fn test_spaces_in_player_name() {
+        let mut file = File::open("test/fixtures/warnings_space_in_name.log.test").unwrap();
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).unwrap();
+        let str = String::from_utf8_lossy(&buf);
+
+        let results = parse_logfile(&str);
+        assert!(results.is_ok())
+    }
+
+    #[test]
+    fn test_problem_log_1() {
+        let mut file = File::open("test/fixtures/warnings-1.log.test").unwrap();
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).unwrap();
+        let str = String::from_utf8_lossy(&buf);
+
+        let results = parse_logfile(&str);
+        assert!(results.is_ok())
+    }
+
+    #[test]
+    fn test_problem_log_2() {
+        let mut file = File::open("test/fixtures/warnings-2.log.test").unwrap();
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).unwrap();
+        let str = String::from_utf8_lossy(&buf);
+
+        let results = parse_logfile(&str);
+        assert!(results.is_ok())
+    }
+
+    #[test]
+    fn test_problem_log_4() {
+        let mut file = File::open("test/fixtures/warnings-4.log.test").unwrap();
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).unwrap();
+        let str = String::from_utf8_lossy(&buf);
+
+        let results = parse_logfile(&str);
+        assert!(results.is_ok())
+    }
 }
