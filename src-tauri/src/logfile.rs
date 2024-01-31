@@ -1,7 +1,7 @@
 use nom::branch::alt;
 use nom::bytes::complete::{is_not, tag, take_until};
-use nom::character::complete::{digit1, line_ending, space1};
-use nom::combinator::{map, map_parser, opt};
+use nom::character::complete::{alpha1, digit1, line_ending, space1};
+use nom::combinator::{map, map_parser, map_res, opt};
 use nom::multi::{fold_many0, fold_many1, many1};
 use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::IResult;
@@ -9,15 +9,8 @@ use nom::IResult;
 #[derive(Debug, Default)]
 pub struct LogfileState {
     pub game_state: Option<GameState>,
-    pub game_type: Option<GameType>,
-    pub timestamp: Option<String>,
-    pub duration: Option<u64>,
-    pub map: Option<String>,
-    pub win_condition: Option<String>,
     pub teams: Option<TeamData>,
-    pub player_name: Option<String>,
-    pub player_steam_id: Option<String>,
-    pub language_code: Option<String>,
+    pub player_relic_id: Option<u64>,
 }
 
 impl LogfileState {
@@ -25,32 +18,11 @@ impl LogfileState {
         if other.game_state.is_some() {
             self.game_state = other.game_state;
         }
-        if other.game_type.is_some() {
-            self.game_type = other.game_type;
-        }
-        if other.timestamp.is_some() {
-            self.timestamp = other.timestamp;
-        }
-        if other.duration.is_some() {
-            self.duration = other.duration;
-        }
-        if other.map.is_some() {
-            self.map = other.map;
-        }
-        if other.win_condition.is_some() {
-            self.win_condition = other.win_condition;
-        }
         if other.teams.is_some() {
             self.teams = other.teams;
         }
-        if other.player_name.is_some() {
-            self.player_name = other.player_name;
-        }
-        if other.player_steam_id.is_some() {
-            self.player_steam_id = other.player_steam_id;
-        }
-        if other.language_code.is_some() {
-            self.language_code = other.language_code;
+        if other.player_relic_id.is_some() {
+            self.player_relic_id = other.player_relic_id;
         }
     }
 }
@@ -75,13 +47,6 @@ impl GameState {
 }
 
 #[derive(Debug)]
-pub enum GameType {
-    Classic,
-    AI,
-    Custom,
-}
-
-#[derive(Debug)]
 pub struct PlayerData {
     ai: bool,
     faction: String,
@@ -101,7 +66,7 @@ pub type ParserResult<'a, T> = IResult<&'a str, T>;
 
 pub fn parse_logfile(input: &str) -> ParserResult<LogfileState> {
     fold_many0(
-        alt((parse_state_transition, parse_players, parse_line)),
+        alt((parse_state_transition, parse_player_relic_id, parse_players, parse_line)),
         LogfileState::default,
         |mut acc: LogfileState, item| {
             if let Some(state) = item {
@@ -116,16 +81,15 @@ fn parse_line(input: &str) -> ParserResult<Option<LogfileState>> {
     map(terminated(opt(is_not("\r\n")), line_ending), |_| None)(input)
 }
 
-fn parse_blank(input: &str) -> ParserResult<Option<LogfileState>> {
-    map(line_ending, |_| None)(input)
-}
-
 fn parse_state_transition(input: &str) -> ParserResult<Option<LogfileState>> {
     map_parser(
-        terminated(is_not("\r\n"), line_ending),
+        take_line,
         map(
-            tuple((parse_indicator, parse_timestamp, parse_id, parse_set_state)),
-            |(_, _, _, (new, _))| {
+            preceded(
+                tuple((parse_indicator, parse_timestamp, parse_id)),
+                parse_set_state,
+            ),
+            |(new, _)| {
                 Some(LogfileState {
                     game_state: Some(GameState::from_state(new)),
                     ..Default::default()
@@ -136,15 +100,12 @@ fn parse_state_transition(input: &str) -> ParserResult<Option<LogfileState>> {
 }
 
 fn parse_set_state(input: &str) -> ParserResult<(&str, &str)> {
-    map(
-        preceded(
-            tag("GameApp::SetState : "),
-            tuple((
-                preceded(tag("new "), delimited(tag("("), take_until(")"), tag(") "))),
-                preceded(tag("old "), delimited(tag("("), take_until(")"), tag(")"))),
-            )),
-        ),
-        |(new, old)| (new, old),
+    preceded(
+        tag("GameApp::SetState : "),
+        tuple((
+            preceded(tag("new "), delimited(tag("("), take_until(")"), tag(") "))),
+            preceded(tag("old "), delimited(tag("("), take_until(")"), tag(")"))),
+        )),
     )(input)
 }
 
@@ -169,7 +130,7 @@ fn parse_players(input: &str) -> ParserResult<Option<LogfileState>> {
 
 fn parse_player(input: &str) -> ParserResult<PlayerData> {
     map_parser(
-        terminated(is_not("\r\n"), line_ending),
+        take_line,
         preceded(
             tuple((parse_indicator, parse_timestamp, parse_id)),
             parse_game_player,
@@ -205,9 +166,7 @@ fn parse_ai(input: &str) -> ParserResult<bool> {
 }
 
 fn parse_position(input: &str) -> ParserResult<u8> {
-    map(terminated(digit1, space1), |position: &str| {
-        position.parse::<u8>().unwrap()
-    })(input)
+    map_res(terminated(digit1, space1), str::parse::<u8>)(input)
 }
 
 fn parse_player_details(input: &str) -> ParserResult<(String, u64, u8, String)> {
@@ -229,6 +188,37 @@ fn parse_player_details(input: &str) -> ParserResult<(String, u64, u8, String)> 
     )(input)
 }
 
+fn parse_player_relic_id(input: &str) -> ParserResult<Option<LogfileState>> {
+    map_parser(
+        take_line,
+        map(
+            preceded(
+                tuple((parse_indicator, parse_timestamp, parse_id)),
+                parse_message,
+            ),
+            |player_relic_id| {
+                Some(LogfileState {
+                    player_relic_id: Some(player_relic_id),
+                    ..Default::default()
+                })
+            },
+        ),
+    )(input)
+}
+
+fn parse_message(input: &str) -> ParserResult<u64> {
+    preceded(
+        tuple((
+            tag("Read bytes ["),
+            digit1,
+            tag(","),
+            delimited(tag("\""), alpha1, tag("\"")),
+            tag(","),
+        )),
+        map_res(digit1, str::parse::<u64>),
+    )(input)
+}
+
 fn parse_indicator(input: &str) -> ParserResult<&str> {
     terminated(alt((tag("(I)"), tag("(E)"))), space1)(input)
 }
@@ -238,8 +228,16 @@ fn parse_timestamp(input: &str) -> ParserResult<&str> {
 }
 
 fn parse_id(input: &str) -> ParserResult<usize> {
-    map(
-        terminated(delimited(tag("["), take_until("]:"), tag("]:")), space1),
-        |id: &str| id.parse::<usize>().unwrap(),
+    terminated(
+        delimited(
+            tag("["),
+            map_res(take_until("]:"), str::parse::<usize>),
+            tag("]:"),
+        ),
+        space1,
     )(input)
+}
+
+fn take_line(input: &str) -> ParserResult<&str> {
+    terminated(is_not("\r\n"), line_ending)(input)
 }
