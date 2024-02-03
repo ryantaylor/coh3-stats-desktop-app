@@ -5,6 +5,9 @@ use nom::combinator::{map, map_parser, map_res, opt, peek};
 use nom::multi::{fold_many0, fold_many1, many1};
 use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::IResult;
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
 
 #[derive(Debug, Default)]
 pub struct LogfileState {
@@ -14,7 +17,7 @@ pub struct LogfileState {
 }
 
 impl LogfileState {
-    fn merge(&mut self, other: LogfileState) {
+    pub fn merge(&mut self, other: LogfileState) {
         if other.game_state.is_some() {
             self.game_state = other.game_state;
         }
@@ -27,7 +30,7 @@ impl LogfileState {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum GameState {
     Closed,
     Menu,
@@ -64,7 +67,17 @@ pub struct TeamData {
 
 pub type ParserResult<'a, T> = IResult<&'a str, T>;
 
-pub fn parse_logfile(input: &str) -> ParserResult<LogfileState> {
+pub fn parse_logfile_path(path: &Path) -> LogfileState {
+    let mut file = File::open(path).unwrap();
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).unwrap();
+    let str = String::from_utf8_lossy(&buf);
+
+    let (_, state) = parse_logfile(&str).unwrap();
+    state
+}
+
+fn parse_logfile(input: &str) -> ParserResult<LogfileState> {
     fold_many0(
         alt((
             parse_state_transition,
@@ -253,6 +266,7 @@ fn take_line(input: &str) -> ParserResult<&str> {
 #[cfg(test)]
 mod tests {
     use super::parse_logfile;
+    use crate::logfile::GameState::Closed;
     use std::fs::File;
     use std::io::Read;
 
@@ -264,7 +278,31 @@ mod tests {
         let str = String::from_utf8_lossy(&buf);
 
         let results = parse_logfile(&str);
-        assert!(results.is_ok())
+        assert!(results.is_ok());
+
+        let (_, data) = results.unwrap();
+        assert_eq!(data.game_state.unwrap(), Closed);
+        assert_eq!(data.player_relic_id.unwrap(), 8230);
+        assert_eq!(
+            data.teams
+                .as_ref()
+                .unwrap()
+                .left
+                .iter()
+                .map(|player| &player.name)
+                .collect::<Vec<_>>(),
+            vec!["Orangepest"]
+        );
+        assert_eq!(
+            data.teams
+                .as_ref()
+                .unwrap()
+                .right
+                .iter()
+                .map(|player| &player.name)
+                .collect::<Vec<_>>(),
+            vec!["Rei"]
+        );
     }
 
     #[test]
@@ -275,7 +313,31 @@ mod tests {
         let str = String::from_utf8_lossy(&buf);
 
         let results = parse_logfile(&str);
-        assert!(results.is_ok())
+        assert!(results.is_ok());
+
+        let (_, data) = results.unwrap();
+        assert_eq!(data.game_state.unwrap(), Closed);
+        assert_eq!(data.player_relic_id.unwrap(), 8230);
+        assert_eq!(
+            data.teams
+                .as_ref()
+                .unwrap()
+                .left
+                .iter()
+                .map(|player| &player.name)
+                .collect::<Vec<_>>(),
+            vec!["Empa"]
+        );
+        assert_eq!(
+            data.teams
+                .as_ref()
+                .unwrap()
+                .right
+                .iter()
+                .map(|player| &player.name)
+                .collect::<Vec<_>>(),
+            vec!["not testing stupid stuff"]
+        );
     }
 
     #[test]
@@ -286,7 +348,36 @@ mod tests {
         let str = String::from_utf8_lossy(&buf);
 
         let results = parse_logfile(&str);
-        assert!(results.is_ok())
+        assert!(results.is_ok());
+
+        let (_, data) = results.unwrap();
+        assert_eq!(data.game_state.unwrap(), Closed);
+        assert_eq!(data.player_relic_id.unwrap(), 3264);
+        assert_eq!(
+            data.teams
+                .as_ref()
+                .unwrap()
+                .left
+                .iter()
+                .map(|player| &player.name)
+                .collect::<Vec<_>>(),
+            vec![
+                "Wolfsindis",
+                "Le mérovingien",
+                "BLITZKRIEG BOB",
+                "joker95174"
+            ]
+        );
+        assert_eq!(
+            data.teams
+                .as_ref()
+                .unwrap()
+                .right
+                .iter()
+                .map(|player| &player.name)
+                .collect::<Vec<_>>(),
+            vec!["Treiben", "McLovin", "既定之天命", "蹦嚓蹦嚓蹦嚓"]
+        );
     }
 
     #[test]
@@ -297,17 +388,68 @@ mod tests {
         let str = String::from_utf8_lossy(&buf);
 
         let results = parse_logfile(&str);
-        assert!(results.is_ok())
+        assert!(results.is_ok());
+
+        let (_, data) = results.unwrap();
+        assert_eq!(data.game_state.unwrap(), Closed);
+        assert_eq!(data.player_relic_id.unwrap(), 16432);
+        assert_eq!(
+            data.teams
+                .as_ref()
+                .unwrap()
+                .left
+                .iter()
+                .map(|player| &player.name)
+                .collect::<Vec<_>>(),
+            vec!["Imperial Dane"]
+        );
+        assert_eq!(
+            data.teams
+                .as_ref()
+                .unwrap()
+                .right
+                .iter()
+                .map(|player| &player.name)
+                .collect::<Vec<_>>(),
+            vec!["UMirinBrah?"]
+        );
     }
 
     #[test]
-    fn test_problem_log_4() {
-        let mut file = File::open("test/fixtures/warnings-4.log.test").unwrap();
+    fn test_problem_log_3() {
+        let mut file = File::open("test/fixtures/warnings-3.log.test").unwrap();
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();
         let str = String::from_utf8_lossy(&buf);
 
         let results = parse_logfile(&str);
-        assert!(results.is_ok())
+        assert!(results.is_ok());
+
+        let (_, data) = results.unwrap();
+        assert_eq!(data.game_state.unwrap(), Closed);
+        assert_eq!(data.player_relic_id.unwrap(), 16432);
+        assert_eq!(
+            data.teams
+                .as_ref()
+                .unwrap()
+                .left
+                .iter()
+                .map(|player| &player.name)
+                .collect::<Vec<_>>(),
+            vec!["UMirinBrah?"]
+        );
+        assert_eq!(
+            data.teams
+                .as_ref()
+                .unwrap()
+                .right
+                .iter()
+                .map(|player| &player.name)
+                .collect::<Vec<_>>(),
+            vec!["IA normale"]
+        );
+
+        assert!(data.teams.as_ref().unwrap().right[0].ai);
+        assert!(data.teams.as_ref().unwrap().right[0].relic_id.is_none());
     }
 }
